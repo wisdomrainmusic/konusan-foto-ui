@@ -7,7 +7,7 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QPushButton, QLabel, QFileDialog,
-    QVBoxLayout, QHBoxLayout, QTextEdit, QMessageBox, QLineEdit
+    QVBoxLayout, QHBoxLayout, QTextEdit, QMessageBox, QLineEdit, QCheckBox
 )
 
 from run_pipeline import run_job
@@ -29,16 +29,17 @@ class Worker(QThread):
     done = pyqtSignal(str)
     fail = pyqtSignal(str)
 
-    def __init__(self, img: str, aud: str):
+    def __init__(self, img: str, aud: str, body_motion: bool):
         super().__init__()
         self.img = img
         self.aud = aud
+        self.body_motion = body_motion
 
     def run(self):
         try:
             def cb(msg: str):
                 self.log.emit(msg)
-            out = run_job(self.img, self.aud, log_cb=cb)
+            out = run_job(self.img, self.aud, log_cb=cb, body_motion_enabled=self.body_motion)
             self.done.emit(str(out))
         except Exception as e:
             self.fail.emit(str(e))
@@ -84,6 +85,9 @@ class KonusanUI(QWidget):
         row2.addWidget(self.aud_line)
         row2.addWidget(btn_aud)
         layout.addLayout(row2)
+
+        self.body_motion_checkbox = QCheckBox("✨ Body Motion (experimental)")
+        layout.addWidget(self.body_motion_checkbox)
 
         # Render buttons
         row3 = QHBoxLayout()
@@ -147,7 +151,8 @@ class KonusanUI(QWidget):
         self.btn_render.setEnabled(False)
         self.log.append("[UI] Render başladı...")
 
-        self.worker = Worker(img, aud)
+        body_motion = self.body_motion_checkbox.isChecked()
+        self.worker = Worker(img, aud, body_motion)
         self.worker.log.connect(self.log.append)
         self.worker.done.connect(self.on_done)
         self.worker.fail.connect(self.on_fail)

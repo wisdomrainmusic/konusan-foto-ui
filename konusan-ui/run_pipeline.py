@@ -6,6 +6,11 @@ import glob
 import subprocess
 from pathlib import Path
 
+try:
+    from body_motion import BodyMotionConfig, apply_body_motion
+except Exception:
+    BodyMotionConfig = None
+    apply_body_motion = None
 
 ROOT = Path(__file__).resolve().parents[1]  # C:\konusan-foto-portable-clean
 PYTHON_EXE = ROOT / "python" / "python.exe"
@@ -120,7 +125,7 @@ def _ffmpeg_mux_best_audio(input_video: Path, input_audio_wav: Path, output_mp4:
     subprocess.check_call(cmd)
 
 
-def run_job(image_path: str, audio_path: str, log_cb=None) -> Path:
+def run_job(image_path: str, audio_path: str, log_cb=None, body_motion_enabled: bool = False) -> Path:
     """
     UI burayı çağıracak. Bittiğinde FINAL_fixed.mp4 döner.
     """
@@ -182,6 +187,53 @@ def run_job(image_path: str, audio_path: str, log_cb=None) -> Path:
         tmp_padded.unlink(missing_ok=True)
     except Exception:
         pass
+
+    if body_motion_enabled:
+        if log_cb:
+            log_cb("Body Motion: enabled (micro shoulder sway)")
+        if apply_body_motion and BodyMotionConfig:
+            bm_video = OUT_DIR / f"_tmp_bm_video_{stamp}.mp4"
+            bm_muxed = OUT_DIR / f"_tmp_bm_muxed_{stamp}.mp4"
+            cfg = BodyMotionConfig(enabled=True)
+            bm_ok = apply_body_motion(str(fixed), str(bm_video), cfg, log=log_cb or print)
+            if bm_ok:
+                cmd = [
+                    str(FFMPEG_EXE),
+                    "-y",
+                    "-i", str(bm_video),
+                    "-i", str(fixed),
+                    "-map", "0:v:0",
+                    "-map", "1:a:0",
+                    "-c:v", "libx264",
+                    "-preset", "veryfast",
+                    "-crf", "18",
+                    "-c:a", "copy",
+                    "-movflags", "+faststart",
+                    str(bm_muxed),
+                ]
+                try:
+                    subprocess.check_call(cmd)
+                    bm_muxed.replace(fixed)
+                except Exception:
+                    if log_cb:
+                        log_cb("Body Motion skipped: ffmpeg mux failed")
+                finally:
+                    try:
+                        bm_video.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                    try:
+                        bm_muxed.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+            else:
+                try:
+                    bm_video.unlink(missing_ok=True)
+                except Exception:
+                    pass
+        else:
+            if log_cb:
+                log_cb("Body Motion skipped: OpenCV not available")
 
     if log_cb:
         log_cb(f"[DONE] Final video: {fixed}")

@@ -1,0 +1,93 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+import math
+
+
+@dataclass
+class BodyMotionConfig:
+    enabled: bool = False
+    amplitude_px: float = 2.0
+    freq_hz: float = 0.18
+    region: str = "lower"
+    feather_px: int = 48
+    start_ratio: float = 0.45
+
+
+def _build_alpha_mask(height: int, width: int, cfg: BodyMotionConfig, cv2, np):
+    y_start = int(height * cfg.start_ratio)
+    alpha = np.zeros((height, width), dtype=np.float32)
+    alpha[y_start:height, :] = 1.0
+
+    if cfg.feather_px > 0:
+        kernel = max(1, int(cfg.feather_px) * 2 + 1)
+        alpha = cv2.GaussianBlur(alpha, (kernel, kernel), 0)
+
+    return np.clip(alpha, 0.0, 1.0)
+
+
+def apply_body_motion(input_video: str, output_video: str, cfg: BodyMotionConfig, log=print) -> bool:
+    if not cfg.enabled:
+        return False
+
+    try:
+        import cv2
+        import numpy as np
+    except Exception:
+        if log:
+            log("Body Motion skipped: OpenCV not available")
+        return False
+
+    cap = cv2.VideoCapture(input_video)
+    if not cap.isOpened():
+        return False
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
+    if fps <= 0:
+        fps = 25.0
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(output_video, fourcc, fps, (width, height))
+    if not writer.isOpened():
+        cap.release()
+        return False
+
+    alpha = _build_alpha_mask(height, width, cfg, cv2, np)
+    alpha_3 = alpha[:, :, None]
+
+    frame_index = 0
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            t = frame_index / fps
+            dx = cfg.amplitude_px * math.sin(2 * math.pi * cfg.freq_hz * t)
+            dy = (cfg.amplitude_px * 0.6) * math.sin(
+                2 * math.pi * (cfg.freq_hz / 2.0) * t + 1.3
+            )
+
+            matrix = np.float32([[1, 0, dx], [0, 1, dy]])
+            shifted = cv2.warpAffine(
+                frame,
+                matrix,
+                (width, height),
+                flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_REFLECT,
+            )
+
+            frame_f = frame.astype(np.float32)
+            shifted_f = shifted.astype(np.float32)
+            blended = shifted_f * alpha_3 + frame_f * (1.0 - alpha_3)
+            blended = np.clip(blended, 0, 255).astype(np.uint8)
+            writer.write(blended)
+
+            frame_index += 1
+    finally:
+        cap.release()
+        writer.release()
+
+    return True
