@@ -205,3 +205,26 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# --- Konusan Foto (project-specific) ---
+output_ui/
+temp/
+*.mp4
+*.wav
+*.mp3
+*.m4a
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.zip
+
+# Heavy local dependencies (do NOT commit)
+python/
+SadTalker/
+ffmpeg/
+checkpoints/
+
+# Local path overrides
+config_local.py
+
