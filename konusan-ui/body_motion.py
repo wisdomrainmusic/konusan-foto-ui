@@ -7,10 +7,10 @@ import math
 @dataclass
 class BodyMotionConfig:
     enabled: bool = False
-    amplitude_px: float = 2.0
-    freq_hz: float = 0.18
-    rotate_deg: float = 1.2
-    scale_amt: float = 0.006
+    amplitude_px: float = 3.0
+    freq_hz: float = 0.12
+    rotate_deg: float = 0.6
+    scale_amt: float = 0.003
     region: str = "lower"
     feather_px: int = 48
     start_ratio: float = 0.45
@@ -65,6 +65,9 @@ def apply_body_motion(input_video: str, output_video: str, cfg: BodyMotionConfig
     alpha = _build_alpha_mask(height, width, cfg, cv2, np)
     alpha_3 = alpha[:, :, None]
     pivot = (width * 0.5, height * 0.88)
+    drift_x = 0.0
+    drift_y = 0.0
+    rng = np.random.RandomState(12345)
 
     frame_index = 0
     try:
@@ -74,14 +77,29 @@ def apply_body_motion(input_video: str, output_video: str, cfg: BodyMotionConfig
                 break
 
             t = frame_index / fps
-            dx = cfg.amplitude_px * math.sin(2 * math.pi * cfg.freq_hz * t)
-            dy = (cfg.amplitude_px * 0.6) * math.sin(
-                2 * math.pi * (cfg.freq_hz / 2.0) * t + 1.3
+            s1 = math.sin(2 * math.pi * cfg.freq_hz * t + 0.3)
+            s2 = math.sin(2 * math.pi * (cfg.freq_hz * 1.73) * t + 1.1)
+            dx_base = cfg.amplitude_px * (0.65 * s1 + 0.35 * s2)
+            dy_base = (cfg.amplitude_px * 0.55) * (
+                0.70 * math.sin(2 * math.pi * (cfg.freq_hz * 0.5) * t + 1.7)
+                + 0.30 * math.sin(2 * math.pi * (cfg.freq_hz * 1.21) * t + 0.2)
             )
-            angle = cfg.rotate_deg * math.sin(2 * math.pi * cfg.freq_hz * t + 0.4)
-            scale = 1.0 + cfg.scale_amt * math.sin(
-                2 * math.pi * (cfg.freq_hz / 2.0) * t + 1.1
-            )
+            if frame_index % max(1, int(fps * 0.5)) == 0:
+                drift_x += float(rng.randn()) * 0.15
+                drift_y += float(rng.randn()) * 0.10
+                drift_x = max(-0.8, min(0.8, drift_x))
+                drift_y = max(-0.6, min(0.6, drift_y))
+
+            dx = dx_base + drift_x
+            dy = dy_base + drift_y
+
+            a1 = math.sin(2 * math.pi * cfg.freq_hz * t + 0.4)
+            a2 = math.sin(2 * math.pi * (cfg.freq_hz * 1.37) * t + 2.0)
+            angle = cfg.rotate_deg * (0.7 * a1 + 0.3 * a2)
+
+            b1 = math.sin(2 * math.pi * (cfg.freq_hz * 0.5) * t + 1.1)
+            b2 = math.sin(2 * math.pi * (cfg.freq_hz * 0.91) * t + 0.6)
+            scale = 1.0 + cfg.scale_amt * (0.8 * b1 + 0.2 * b2)
 
             matrix = cv2.getRotationMatrix2D(pivot, angle, scale)
             matrix[0, 2] += dx
