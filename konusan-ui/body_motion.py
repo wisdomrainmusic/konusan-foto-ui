@@ -9,6 +9,8 @@ class BodyMotionConfig:
     enabled: bool = False
     amplitude_px: float = 2.0
     freq_hz: float = 0.18
+    rotate_deg: float = 1.2
+    scale_amt: float = 0.006
     region: str = "lower"
     feather_px: int = 48
     start_ratio: float = 0.45
@@ -54,8 +56,15 @@ def apply_body_motion(input_video: str, output_video: str, cfg: BodyMotionConfig
         cap.release()
         return False
 
+    if log:
+        log(
+            "Body Motion ON: amp="
+            f"{cfg.amplitude_px}px rot={cfg.rotate_deg}deg scale={cfg.scale_amt}"
+        )
+
     alpha = _build_alpha_mask(height, width, cfg, cv2, np)
     alpha_3 = alpha[:, :, None]
+    pivot = (width * 0.5, height * 0.88)
 
     frame_index = 0
     try:
@@ -69,8 +78,14 @@ def apply_body_motion(input_video: str, output_video: str, cfg: BodyMotionConfig
             dy = (cfg.amplitude_px * 0.6) * math.sin(
                 2 * math.pi * (cfg.freq_hz / 2.0) * t + 1.3
             )
+            angle = cfg.rotate_deg * math.sin(2 * math.pi * cfg.freq_hz * t + 0.4)
+            scale = 1.0 + cfg.scale_amt * math.sin(
+                2 * math.pi * (cfg.freq_hz / 2.0) * t + 1.1
+            )
 
-            matrix = np.float32([[1, 0, dx], [0, 1, dy]])
+            matrix = cv2.getRotationMatrix2D(pivot, angle, scale)
+            matrix[0, 2] += dx
+            matrix[1, 2] += dy
             shifted = cv2.warpAffine(
                 frame,
                 matrix,
