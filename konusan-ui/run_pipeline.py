@@ -84,36 +84,47 @@ def _run_sadtalker(image_path: Path, audio_path: Path, result_dir: Path, still=T
     return proc
 
 
-def _ffmpeg_pad_audio(input_audio: Path, output_wav: Path, pad_ms: int = 150):
+def _ffmpeg_pad_audio(input_audio: Path, output_wav: Path):
     """
-    İlk kelimeyi yememesi için başa ~150ms sessizlik ekler.
+    Mux için WAV'e dönüştürür.
     (WAV çıkartıyoruz ki mux stabil olsun.)
     """
     cmd = [
         str(FFMPEG_EXE),
         "-y",
         "-i", str(input_audio),
-        "-af", f"adelay={pad_ms}|{pad_ms}",
         "-acodec", "pcm_s16le",
-        "-ar", "44100",
-        "-ac", "1",
+        "-ar", "48000",
+        "-ac", "2",
         str(output_wav),
     ]
     subprocess.check_call(cmd)
 
 
-def _ffmpeg_mux_best_audio(input_video: Path, input_audio_wav: Path, output_mp4: Path):
+def _ffmpeg_mux_best_audio(
+    input_video: Path,
+    input_audio_wav: Path,
+    output_mp4: Path,
+    start_pad_ms: int = 150,
+    tail_sec: float = 0.20,
+):
     """
     Video stream: copy
     Audio: aac 48kHz 192kbps (kalite fix)
     """
+    filter_complex = (
+        f"[1:a]adelay={start_pad_ms}|{start_pad_ms}[aud];"
+        f"anullsrc=r=48000:cl=stereo:d={tail_sec:.2f}[sil];"
+        "[aud][sil]concat=n=2:v=0:a=1[aout]"
+    )
     cmd = [
         str(FFMPEG_EXE),
         "-y",
         "-i", str(input_video),
         "-i", str(input_audio_wav),
+        "-filter_complex", filter_complex,
         "-map", "0:v:0",
-        "-map", "1:a:0",
+        "-map", "[aout]",
         "-c:v", "copy",
         "-c:a", "aac",
         "-b:a", "192k",
@@ -177,10 +188,10 @@ def run_job(image_path: str, audio_path: str, log_cb=None, body_motion_enabled: 
 
     tmp_padded = OUT_DIR / f"_tmp_padded_{stamp}.wav"
     if log_cb:
-        log_cb("[INFO] Fixing audio (pad + re-encode)...")
+        log_cb("Audio fix: start pad 150ms + tail pad 0.20s")
 
-    _ffmpeg_pad_audio(aud, tmp_padded, pad_ms=150)
-    _ffmpeg_mux_best_audio(newest, tmp_padded, fixed)
+    _ffmpeg_pad_audio(aud, tmp_padded)
+    _ffmpeg_mux_best_audio(newest, tmp_padded, fixed, start_pad_ms=150, tail_sec=0.20)
 
     # tmp temizle
     try:
